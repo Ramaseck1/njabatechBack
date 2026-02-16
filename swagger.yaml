@@ -1,0 +1,5261 @@
+openapi: 3.0.3
+info:
+  title: GIE Backend API
+  description: |
+    API pour la gestion des GIE (Groupement d'Intérêt Économique)
+    
+    ## Fonctionnalités principales
+    - Authentification administrateur, client et livreur
+    - Gestion des GIE
+    - Gestion des clients
+    - Gestion des livreurs et livraisons
+    - Gestion des catégories de produits
+    - Gestion des produits
+    - Gestion des commandes
+    - Gestion des paiements
+    - Gestion des régions et frais de livraison
+    - Gestion des adresses de livraison
+    
+    ## 🏢 Système Multi-GIE (Nouveau)
+    L'API gère maintenant un système avancé de commandes multi-GIE avec coordination automatique :
+    
+    ### Fonctionnalités Multi-GIE
+    - **Notifications automatiques** : Chaque GIE reçoit un SMS quand une commande arrive
+    - **Statuts par GIE** : Chaque produit a son propre statut (EN_ATTENTE, EN_PREPARATION, PRET, ANNULE)
+    - **Statut global intelligent** : Calculé automatiquement selon les statuts individuels
+    - **Notifications client intelligentes** : SMS envoyé seulement quand TOUS les GIE sont prêts
+    - **Gestion des annulations partielles** : Possibilité d'annuler des produits spécifiques
+    
+    ### Flux Multi-GIE
+    1. **Client commande** → Notifications envoyées à tous les GIE concernés
+    2. **GIE traitent** → Chaque GIE marque ses produits (EN_PREPARATION → PRET)
+    3. **Système vérifie** → Si tous les GIE sont prêts, notification automatique au client
+    4. **Livraison** → Commande prête pour la livraison
+    
+    ### Exemple de commande multi-GIE
+    ```json
+    {
+      "produits": [
+        {"produitId": "tomates_gie_a", "quantite": 2, "prixUnitaire": 500},
+        {"produitId": "oranges_gie_b", "quantite": 3, "prixUnitaire": 300}
+      ]
+    }
+    ```
+    - **GIE A** reçoit : "Nouvelle commande #CMD-123 ! Produits: 2x Tomates"
+    - **GIE B** reçoit : "Nouvelle commande #CMD-123 ! Produits: 3x Oranges"
+    - **Client** reçoit : "Votre commande #CMD-123 est prête !" (seulement quand tous prêts)
+    
+    ## Authentification
+    L'API utilise JWT pour l'authentification. Incluez le token dans le header Authorization :
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+    
+    ## Rôles
+    - **SUPER_ADMIN** : Accès complet à toutes les fonctionnalités
+    - **ADMIN** : Gestion des GIE, clients, livreurs, produits et commandes
+    - **CLIENT** : Accès limité à ses propres données
+    - **LIVREUR** : Gestion des livraisons et commandes assignées
+    
+    ## Gestion des images
+    L'API supporte l'upload d'images pour les produits via Cloudinary :
+    - **Formats supportés** : JPG, PNG, GIF, WebP
+    - **Taille maximale** : 10MB
+    - **Stockage** : Images optimisées et sécurisées sur Cloudinary
+    - **URLs** : Format HTTPS avec versioning automatique
+    
+    ## Système de frais de livraison
+    L'API gère automatiquement les frais de livraison basés sur les régions :
+    - **Frais interne** : 500 FCFA (même région)
+    - **Frais externe** : 2000 FCFA (régions différentes)
+    - **Frais spécifiques** : Par adresse (optionnel)
+    
+    ### Régions disponibles
+    - **Dakar** : Capitale et environs
+    - **Saint-Louis** : Région nord
+    - **Mbour** : Région côtière
+    
+    ### Exemple d'utilisation avec images
+    ```bash
+    # Mise à jour d'un produit avec nouvelle image
+    curl -X PUT \
+      http://localhost:3003/api/produits/123e4567-e89b-12d3-a456-426614174000 \
+      -H 'Authorization: Bearer <your-jwt-token>' \
+      -F 'nom=Nouveau nom' \
+      -F 'prix=29.99' \
+      -F 'image=@/path/to/image.jpg'
+    ```
+    
+    ### Exemple de calcul des frais de livraison
+    ```bash
+    # Calculer les frais entre deux régions
+    curl -X POST \
+      http://localhost:3003/api/regions/calculate-frais-livraison \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "regionSourceId": "region-dakar-id",
+        "regionDestinationId": "region-saint-louis-id"
+      }'
+    ```
+    
+    ## Système de livraison centralisé
+    L'API gère un système complet de livraison centralisé avec livreurs :
+    
+    ### Gestion des livreurs (Admin uniquement)
+    - **Création de livreurs** : Seuls les administrateurs peuvent créer des comptes livreur
+    - **Gestion de l'équipe** : L'admin peut voir, modifier et supprimer les livreurs
+    - **Affectation des régions** : L'admin assigne les livreurs aux régions
+    - **Contrôle des statuts** : L'admin peut bloquer/débloquer les livreurs
+    
+    ### Service de livraison centralisé
+    - **Accès universel** : Les livreurs voient toutes les commandes de tous les GIE
+    - **Aucun filtre** : Toutes les commandes sont visibles par défaut
+    - **Service centralisé** : Pas de restriction par région
+    - **Choix libre** : Les livreurs choisissent les commandes à livrer
+    - **Contact direct** : Informations GIE et client pour chaque commande
+    
+    ### Fonctionnalités livreur
+    - **Authentification livreur** : Login dédié avec JWT
+    - **Vue d'ensemble** : Toutes les commandes disponibles en temps réel
+    - **Gestion des commandes** : Assignation et suivi des livraisons
+    - **Statuts de livreur** : DISPONIBLE, EN_LIVRAISON, INDISPONIBLE, BLOQUE
+    - **Communication** : Appels directs aux GIE et clients
+    - **Suivi complet** : Du statut de la commande à la livraison
+    
+    ### Exemple d'authentification livreur
+    ```bash
+    # Connexion d'un livreur
+    curl -X POST \
+      http://localhost:3003/api/livreurs/login \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "email": "moussa.diop@livraison.com",
+        "password": "password123"
+      }'
+    ```
+    
+    ### Exemple de récupération des commandes disponibles
+    ```bash
+    # Récupérer toutes les commandes disponibles (tous GIE)
+    curl -X GET \
+      'http://localhost:3003/api/livreurs/commandes-disponibles?page=1&limit=20' \
+      -H 'Authorization: Bearer <livreur-jwt-token>'
+    ```
+    
+    ### Exemple d'assignation de commande
+    ```bash
+    # Assigner une commande à un livreur (livreurId extrait du token JWT)
+    curl -X POST \
+      http://localhost:3003/api/livreurs/assigner-commande \
+      -H 'Content-Type: application/json' \
+      -H 'Authorization: Bearer <livreur-jwt-token>' \
+      -d '{
+        "commandeId": "commande-456"
+      }'
+    ```
+    
+    ### Exemple de marquage comme livrée
+    ```bash
+    # Marquer une commande comme livrée (livreurId extrait du token JWT)
+    curl -X POST \
+      http://localhost:3003/api/livreurs/marquer-livree \
+      -H 'Content-Type: application/json' \
+      -H 'Authorization: Bearer <livreur-jwt-token>' \
+      -d '{
+        "commandeId": "commande-456"
+      }'
+    ```
+    
+    ### Dépannage des erreurs courantes
+    
+    #### Erreur "Token invalide ou livreur non authentifié"
+    - Vérifiez que le livreur est correctement authentifié
+    - Assurez-vous que le token JWT est valide et non expiré
+    - Vérifiez que le token contient bien l'ID du livreur
+    
+    #### Erreur "Commande introuvable ou non assignée à ce livreur"
+    - Vérifiez que la commande existe
+    - Assurez-vous que la commande est bien assignée au livreur
+    - Vérifiez que l'ID de la commande est correct
+    
+    #### Erreur "Network request failed" (React Native)
+    - Vérifiez que le backend est accessible depuis l'émulateur
+    - Utilisez `10.0.2.2:3003` pour Android Emulator
+    - Vérifiez que le port 3003 est ouvert
+  version: 1.0.0
+  contact:
+    name: Support API GIE
+    email: support@gie-api.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3003/api
+    description: Serveur de développement
+  - url: https://giev1-2-1.onrender.com/api
+    description: Serveur de production
+
+tags:
+  - name: Santé
+    description: Endpoints de vérification de l'état de l'API
+  - name: Authentification
+    description: Endpoints d'authentification et gestion des utilisateurs
+  - name: GIE
+    description: Gestion des Groupements d'Intérêt Économique
+  - name: Clients
+    description: Gestion des clients
+  - name: Produits
+    description: Gestion des produits et catégories
+  - name: Commandes
+    description: Gestion des commandes classiques
+  - name: Commandes Multi-GIE
+    description: Gestion avancée des commandes multi-GIE avec coordination automatique
+  - name: Paiements
+    description: Gestion des paiements
+  - name: Livreurs
+    description: Gestion des livreurs et livraisons
+  - name: Régions
+    description: Gestion des régions et frais de livraison
+  - name: Adresses
+    description: Gestion des adresses de livraison
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Vérifier l'état de l'API
+      description: Endpoint de santé pour vérifier que l'API fonctionne
+      tags:
+        - Santé
+      responses:
+        '200':
+          description: API opérationnelle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "API GIE Backend - Service opérationnel"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+  /auth/admin/login:
+    post:
+      summary: Connexion administrateur
+      description: Authentifier un administrateur et obtenir un token JWT
+      tags:
+        - Authentification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "admin@gie.com"
+                password:
+                  type: string
+                  example: "admin123"
+      responses:
+        '200':
+          description: Connexion réussie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Connexion réussie"
+                  data:
+                    type: object
+                    properties:
+                      administrateur:
+                        $ref: '#/components/schemas/Administrateur'
+                      token:
+                        type: string
+                        example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '400':
+          description: Données manquantes
+        '401':
+          description: Email ou mot de passe incorrect
+
+  /auth/client/login:
+    post:
+      summary: Connexion client
+      description: Authentifier un client et obtenir un token JWT
+      tags:
+        - Authentification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "client@example.com"
+                password:
+                  type: string
+                  example: "client123"
+      responses:
+        '200':
+          description: Connexion réussie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Connexion réussie"
+                  data:
+                    type: object
+                    properties:
+                      client:
+                        $ref: '#/components/schemas/Client'
+                      token:
+                        type: string
+                        example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '400':
+          description: Données manquantes
+        '401':
+          description: Email ou mot de passe incorrect
+
+  /auth/admin/register:
+    post:
+      summary: Inscription administrateur
+      description: Créer un nouvel administrateur (réservé aux super admins)
+      tags:
+        - Authentification
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAdministrateurDto'
+      responses:
+        '201':
+          description: Administrateur créé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Administrateur créé avec succès"
+                  data:
+                    $ref: '#/components/schemas/Administrateur'
+        '400':
+          description: Données invalides
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Super admin requis
+
+  /auth/client/register:
+    post:
+      summary: Inscription client
+      description: Créer un nouveau client (réservé aux admins)
+      tags:
+        - Authentification
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClientDto'
+      responses:
+        '201':
+          description: Client créé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Client créé avec succès"
+                  data:
+                    $ref: '#/components/schemas/Client'
+        '400':
+          description: Données invalides
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+
+  /auth/verify-token:
+    post:
+      summary: Vérifier un token
+      description: Vérifier la validité d'un token JWT
+      tags:
+        - Authentification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        '200':
+          description: Token valide
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Token valide"
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      email:
+                        type: string
+                      role:
+                        type: string
+        '401':
+          description: Token invalide
+
+  /auth/change-password:
+    post:
+      summary: Changer le mot de passe
+      description: Changer le mot de passe de l'utilisateur connecté
+      tags:
+        - Authentification
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentPassword
+                - newPassword
+              properties:
+                currentPassword:
+                  type: string
+                  example: "ancienMotDePasse"
+                newPassword:
+                  type: string
+                  example: "nouveauMotDePasse"
+      responses:
+        '200':
+          description: Mot de passe modifié avec succès
+        '400':
+          description: Données invalides
+        '401':
+          description: Non autorisé
+
+  /gies:
+    get:
+      summary: Récupérer tous les GIE
+      description: Récupérer la liste des GIE avec pagination
+      tags:
+        - GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 10
+        - name: administrateurId
+          in: query
+          description: Filtrer par administrateur
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Liste des GIE récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "GIE récupérés avec succès"
+                  data:
+                    type: object
+                    properties:
+                      gies:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/GIE'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: Non autorisé
+
+    post:
+      summary: Créer un GIE
+      description: Créer un nouveau GIE
+      tags:
+        - GIE
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGIEDto'
+      responses:
+        '201':
+          description: GIE créé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "GIE créé avec succès"
+                  data:
+                    $ref: '#/components/schemas/GIE'
+        '400':
+          description: Données invalides
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+  /gies/search:
+    get:
+      summary: Rechercher des GIE
+      description: Rechercher des GIE par nom, description ou email
+      tags:
+        - GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Terme de recherche
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Recherche effectuée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Recherche effectuée avec succès"
+                  data:
+                    type: object
+                    properties:
+                      gies:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/GIE'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          description: Terme de recherche requis
+        '401':
+          description: Non autorisé
+
+  /gies/{id}:
+    get:
+      summary: Récupérer un GIE
+      description: Récupérer les détails d'un GIE par son ID
+      tags:
+        - GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du GIE
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: GIE récupéré avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "GIE récupéré avec succès"
+                  data:
+                    $ref: '#/components/schemas/GIE'
+        '404':
+          description: GIE non trouvé
+        '401':
+          description: Non autorisé
+
+    put:
+      summary: Mettre à jour un GIE
+      description: Mettre à jour les informations d'un GIE
+      tags:
+        - GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du GIE
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGIEDto'
+      responses:
+        '200':
+          description: GIE mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "GIE mis à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/GIE'
+        '400':
+          description: Données invalides
+        '404':
+          description: GIE non trouvé
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+    delete:
+      summary: Supprimer un GIE
+      description: Supprimer un GIE
+      tags:
+        - GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du GIE
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: GIE supprimé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "GIE supprimé avec succès"
+        '404':
+          description: GIE non trouvé
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+  /gies/{id}/status:
+    patch:
+      summary: Changer le statut d'un GIE
+      description: Modifier le statut d'un GIE (ACTIF, INACTIF, SUSPENDU)
+      tags:
+        - GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du GIE
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - statut
+              properties:
+                statut:
+                  type: string
+                  enum: [ACTIF, INACTIF, SUSPENDU]
+                  example: "ACTIF"
+      responses:
+        '200':
+          description: Statut mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Statut du GIE mis à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/GIE'
+        '400':
+          description: Statut invalide
+        '404':
+          description: GIE non trouvé
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+  /gies/{id}/stats:
+    get:
+      summary: Statistiques d'un GIE
+      description: Récupérer les statistiques d'un GIE
+      tags:
+        - GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du GIE
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Statistiques récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Statistiques récupérées avec succès"
+                  data:
+                    type: object
+                    properties:
+                      totalProduits:
+                        type: integer
+                        example: 25
+                      totalCommandes:
+                        type: integer
+                        example: 150
+                      totalVentes:
+                        type: number
+                        example: 12500.50
+        '404':
+          description: GIE non trouvé
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+  /produits:
+    get:
+      summary: Récupérer tous les produits
+      description: Récupérer la liste des produits avec pagination
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 10
+        - name: gieId
+          in: query
+          description: Filtrer par GIE
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Liste des produits récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produits récupérés avec succès"
+                  data:
+                    type: object
+                    properties:
+                      produits:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Produit'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: Non autorisé
+
+    post:
+      summary: Créer un produit
+      description: Créer un nouveau produit
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                nom:
+                  type: string
+                  example: "Tomates Bio"
+                quantite:
+                  type: string
+                  example: "100L"
+                description:
+                  type: string
+                  example: "Tomates biologiques fraîches du jardin"
+                prix:
+                  type: number
+                  format: float
+                  example: 2.50
+                stock:
+                  type: integer
+                  example: 100
+                categorieId:
+                  type: string
+                  description: ID de la catégorie du produit (optionnel)
+                  example: "cat-1"
+                image:
+                  type: string
+                  format: binary
+                  description: Image du produit
+            encoding:
+              image:
+                contentType: image/*
+      responses:
+        '201':
+          description: Produit créé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produit créé avec succès"
+                  data:
+                    $ref: '#/components/schemas/Produit'
+        '400':
+          description: |
+            Données invalides
+            - Prix négatif ou égal à zéro
+            - Stock négatif
+            - Catégorie non trouvée (categorieId invalide)
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+  /produits/search:
+    get:
+      summary: Rechercher des produits
+      description: Rechercher des produits par nom, description ou nom de catégorie
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Terme de recherche
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Recherche effectuée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Recherche effectuée avec succès"
+                  data:
+                    type: object
+                    properties:
+                      produits:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Produit'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          description: Terme de recherche requis
+        '401':
+          description: Non autorisé
+
+  /produits/category/{categorieId}:
+    get:
+      summary: Produits par catégorie
+      description: Récupérer les produits d'une catégorie spécifique par son ID
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: categorieId
+          in: path
+          description: ID de la catégorie
+          required: true
+          schema:
+            type: string
+            example: "cat-1"
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Produits récupérés avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produits récupérés avec succès"
+                  data:
+                    type: object
+                    properties:
+                      produits:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Produit'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: Non autorisé
+
+  /produits/out-of-stock:
+    get:
+      summary: Produits en rupture de stock
+      description: Récupérer les produits en rupture ou hors stock
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Produits en rupture récupérés avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produits en rupture récupérés avec succès"
+                  data:
+                    type: object
+                    properties:
+                      produits:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Produit'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+  /produits/{id}:
+    get:
+      summary: Récupérer un produit
+      description: Récupérer les détails d'un produit par son ID
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du produit
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Produit récupéré avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produit récupéré avec succès"
+                  data:
+                    $ref: '#/components/schemas/Produit'
+        '404':
+          description: Produit non trouvé
+        '401':
+          description: Non autorisé
+
+    put:
+      summary: Mettre à jour un produit
+      description: |
+        Mettre à jour les informations d'un produit avec support des images Cloudinary.
+        
+        **Fonctionnalités :**
+        - Mise à jour des données du produit (nom, description, prix, stock, catégorie)
+        - Upload de nouvelle image (optionnel) - remplace automatiquement l'ancienne
+        - Conservation de l'image existante si aucune nouvelle image n'est fournie
+        - Suppression automatique de l'ancienne image de Cloudinary lors de l'upload d'une nouvelle
+        
+        **Formats d'image supportés :** JPG, PNG, GIF, WebP
+        **Taille maximale :** 10MB
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du produit à mettre à jour
+          required: true
+          schema:
+            type: string
+            example: "123e4567-e89b-12d3-a456-426614174000"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                nom:
+                  type: string
+                  description: Nom du produit
+                  example: "Tomates Bio Mises à Jour"
+                description:
+                  type: string
+                  description: Description du produit
+                  example: "Tomates biologiques fraîches du jardin - nouvelle récolte"
+                prix:
+                  type: number
+                  format: float
+                  description: Prix du produit (doit être > 0)
+                  example: 3.50
+                stock:
+                  type: integer
+                  description: Quantité en stock (doit être >= 0)
+                  example: 75
+                categorieId:
+                  type: string
+                  description: ID de la catégorie du produit (optionnel)
+                  example: "cat-1"
+                image:
+                  type: string
+                  format: binary
+                  description: |
+                    Nouvelle image du produit (optionnel).
+                    Si fournie, remplace automatiquement l'ancienne image.
+                    Si non fournie, l'image existante est conservée.
+            encoding:
+              image:
+                contentType: image/*
+      responses:
+        '200':
+          description: Produit mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produit mis à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/Produit'
+        '400':
+          description: |
+            Données invalides
+            - Prix négatif ou égal à zéro
+            - Stock négatif
+            - Catégorie non trouvée (categorieId invalide)
+            - Erreur lors de l'upload d'image
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Le prix doit être supérieur à 0"
+                  error:
+                    type: string
+                    example: "Erreur lors de l'upload de l'image"
+        '403':
+          description: |
+            Accès refusé
+            - Le produit ne vous appartient pas (seul le GIE propriétaire peut modifier)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Accès refusé. Ce produit ne vous appartient pas."
+        '404':
+          description: Produit non trouvé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Produit non trouvé"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '500':
+          description: Erreur serveur
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Erreur lors de la mise à jour du produit"
+                  error:
+                    type: string
+                    example: "Erreur interne du serveur"
+
+    delete:
+      summary: Supprimer un produit
+      description: Supprimer un produit
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du produit
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Produit supprimé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produit supprimé avec succès"
+        '404':
+          description: Produit non trouvé
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+  /produits/{id}/stock:
+    patch:
+      summary: Mettre à jour le stock d'un produit
+      description: Modifier le stock d'un produit
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du produit
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - quantite
+              properties:
+                quantite:
+                  type: integer
+                  description: Quantité à ajouter (positive) ou retirer (négative)
+                  example: 10
+      responses:
+        '200':
+          description: Stock mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Stock mis à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/Produit'
+        '400':
+          description: Quantité requise
+        '404':
+          description: Produit non trouvé
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - Admin requis
+
+  /auth/gie/login:
+    post:
+      summary: Connexion GIE
+      description: Authentifier un GIE par email OU téléphone et obtenir un token JWT
+      tags:
+        - Authentification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - identifiant
+                - password
+              properties:
+                identifiant:
+                  type: string
+                  example: "contact@gie-artisanat.com" # ou "+221771234567"
+                password:
+                  type: string
+                  example: "motdepasse"
+      responses:
+        '200':
+          description: Connexion réussie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Connexion réussie"
+                  data:
+                    type: object
+                    properties:
+                      gie:
+                        $ref: '#/components/schemas/GIE'
+                      token:
+                        type: string
+                        example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '400':
+          description: Données manquantes
+        '401':
+          description: Identifiant ou mot de passe incorrect
+
+  /clients:
+    get:
+      tags:
+        - Client
+      summary: Liste des clients
+      responses:
+        '200':
+          description: Liste des clients
+    post:
+      tags:
+        - Client
+      summary: Créer un client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Client'
+      responses:
+        '201':
+          description: Client créé
+
+  /clients/{id}:
+    get:
+      tags:
+        - Client
+      summary: Détail d'un client
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Détail du client
+
+  /commandes:
+    get:
+      summary: Récupérer toutes les commandes
+      description: |
+        Récupérer la liste de toutes les commandes avec pagination et filtres.
+        
+        **Fonctionnalités :**
+        - Liste paginée des commandes
+        - Tri par date de commande (plus récentes en premier)
+        - Filtres par statut, client, région
+        - Inclut les informations de livraison et frais
+      tags:
+        - Commandes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: statut
+          in: query
+          description: Filtrer par statut de commande
+          required: false
+          schema:
+            type: string
+            enum: [EN_ATTENTE, CONFIRMEE, EN_PREPARATION, EXPEDIEE, LIVREE, ANNULEE]
+        - name: clientId
+          in: query
+          description: Filtrer par ID du client
+          required: false
+          schema:
+            type: string
+        - name: regionId
+          in: query
+          description: Filtrer par région de livraison (optionnel - si non fourni, toutes les commandes sont retournées)
+          required: false
+          schema:
+            type: string
+            example: "region-dakar"
+      responses:
+        '200':
+          description: Liste des commandes récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Commandes récupérées avec succès"
+                  data:
+                    type: object
+                    properties:
+                      commandes:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Commande'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+    post:
+      summary: Créer une nouvelle commande
+      description: |
+        Créer une nouvelle commande avec calcul automatique des frais de livraison.
+        
+        **Fonctionnalités :**
+        - Calcul automatique des frais de livraison selon la région
+        - Validation des produits et quantités
+        - Création automatique du paiement associé
+        - Génération automatique du numéro de commande
+        
+        **Calcul des frais de livraison :**
+        - Même région : frais de livraison interne
+        - Régions différentes : frais de livraison externe
+        - Frais spécifiques par adresse (optionnel)
+      tags:
+        - Commandes
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - clientId
+                - produits
+              properties:
+                clientId:
+                  type: string
+                  description: ID du client qui passe la commande
+                  example: "client-123"
+                regionLivraisonId:
+                  type: string
+                  description: ID de la région de livraison (optionnel, calculé automatiquement si non fourni)
+                  example: "region-dakar"
+                adresseLivraison:
+                  type: string
+                  description: Adresse de livraison détaillée
+                  example: "Centre-ville Dakar, 123 Rue de la Paix, Dakar"
+                produits:
+                  type: array
+                  description: Liste des produits commandés
+                  items:
+                    type: object
+                    required:
+                      - produitId
+                      - quantite
+                    properties:
+                      produitId:
+                        type: string
+                        description: ID du produit
+                        example: "produit-1"
+                      quantite:
+                        type: integer
+                        minimum: 1
+                        description: Quantité commandée
+                        example: 2
+      responses:
+        '201':
+          description: Commande créée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Commande créée avec succès"
+                  data:
+                    $ref: '#/components/schemas/Commande'
+        '400':
+          description: |
+            Données invalides
+            - Client introuvable
+            - Produit introuvable ou stock insuffisant
+            - Région de livraison introuvable
+            - Quantité invalide
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Produit introuvable ou stock insuffisant"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Client requis
+
+  /commandes/{id}:
+    get:
+      summary: Récupérer une commande par ID
+      description: |
+        Récupérer les détails complets d'une commande spécifique.
+        
+        **Inclus :**
+        - Informations de la commande
+        - Détails du client
+        - Liste des produits commandés
+        - Informations de livraison et frais
+        - Détails du paiement associé
+      tags:
+        - Commandes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID de la commande
+          required: true
+          schema:
+            type: string
+            example: "commande-123"
+      responses:
+        '200':
+          description: Commande récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Commande récupérée avec succès"
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Commande'
+                      - type: object
+                        properties:
+                          client:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              nom:
+                                type: string
+                              prenom:
+                                type: string
+                              email:
+                                type: string
+                          produits:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                nom:
+                                  type: string
+                                prix:
+                                  type: number
+                                quantite:
+                                  type: integer
+                                total:
+                                  type: number
+                          paiement:
+                            $ref: '#/components/schemas/Paiement'
+        '404':
+          description: Commande non trouvée
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Client ou Admin requis
+
+    put:
+      summary: Mettre à jour le statut d'une commande
+      description: |
+        Modifier le statut d'une commande (authentification Admin requise).
+        
+        **Statuts possibles :**
+        - EN_ATTENTE : Commande en attente de confirmation
+        - CONFIRMEE : Commande confirmée
+        - EN_PREPARATION : Commande en cours de préparation
+        - EXPEDIEE : Commande expédiée
+        - LIVREE : Commande livrée
+        - ANNULEE : Commande annulée
+      tags:
+        - Commandes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID de la commande à modifier
+          required: true
+          schema:
+            type: string
+            example: "commande-123"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - statut
+              properties:
+                statut:
+                  type: string
+                  enum: [EN_ATTENTE, CONFIRMEE, EN_PREPARATION, EXPEDIEE, LIVREE, ANNULEE]
+                  description: Nouveau statut de la commande
+                  example: "CONFIRMEE"
+                dateLivraison:
+                  type: string
+                  format: date-time
+                  description: Date de livraison prévue (optionnel)
+                  example: "2024-01-15T10:00:00.000Z"
+      responses:
+        '200':
+          description: Statut de la commande mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Statut de la commande mis à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/Commande'
+        '400':
+          description: |
+            Données invalides
+            - Statut invalide
+            - Impossible de modifier le statut
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Statut invalide"
+        '404':
+          description: Commande non trouvée
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /commandes/client/{clientId}:
+    get:
+      summary: Récupérer les commandes d'un client
+      description: |
+        Récupérer toutes les commandes d'un client spécifique.
+        
+        **Fonctionnalités :**
+        - Liste paginée des commandes du client
+        - Tri par date de commande (plus récentes en premier)
+        - Filtres par statut
+      tags:
+        - Commandes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: clientId
+          in: path
+          description: ID du client
+          required: true
+          schema:
+            type: string
+            example: "client-123"
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: statut
+          in: query
+          description: Filtrer par statut de commande
+          required: false
+          schema:
+            type: string
+            enum: [EN_ATTENTE, CONFIRMEE, EN_PREPARATION, EXPEDIEE, LIVREE, ANNULEE]
+      responses:
+        '200':
+          description: Commandes du client récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Commandes du client récupérées avec succès"
+                  data:
+                    type: object
+                    properties:
+                      commandes:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Commande'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '404':
+          description: Client non trouvé
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Client ou Admin requis
+
+  /paiements:
+    get:
+      tags:
+        - Paiement
+      summary: Liste des paiements
+      responses:
+        '200':
+          description: Liste des paiements
+    post:
+      tags:
+        - Paiement
+      summary: Créer un paiement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Paiement'
+      responses:
+        '201':
+          description: Paiement créé
+
+  /paiements/{id}:
+    get:
+      tags:
+        - Paiement
+      summary: Détail d'un paiement
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Détail du paiement
+
+  /categories:
+    get:
+      summary: Récupérer toutes les catégories
+      description: |
+        Récupérer la liste de toutes les catégories disponibles avec pagination.
+        
+        **Fonctionnalités :**
+        - Liste paginée des catégories
+        - Tri par nom alphabétique
+        - Inclut le nombre de produits par catégorie
+      tags:
+        - Catégories
+      parameters:
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Liste des catégories récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Catégories récupérées avec succès"
+                  data:
+                    type: object
+                    properties:
+                      categories:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Categorie'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+    post:
+      summary: Créer une nouvelle catégorie
+      description: |
+        Créer une nouvelle catégorie de produits avec upload d'image (authentification Admin requise).
+        
+        **Validation :**
+        - Le nom de la catégorie est obligatoire
+        - Le nom doit être unique
+        - L'image sera uploadée vers Cloudinary automatiquement
+        - La couleur est optionnelle
+        
+        **Format :** multipart/form-data pour l'upload d'image
+      tags:
+        - Catégories
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - nom
+              properties:
+                nom:
+                  type: string
+                  description: Nom de la catégorie (doit être unique)
+                  example: "Électronique"
+                description:
+                  type: string
+                  description: Description de la catégorie
+                  example: "Produits électroniques et gadgets"
+                couleur:
+                  type: string
+                  description: Code couleur hexadécimal
+                  example: "#3B82F6"
+                image:
+                  type: string
+                  format: binary
+                  description: Image de la catégorie (JPG, PNG, GIF, WebP - Max 10MB)
+      responses:
+        '201':
+          description: Catégorie créée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Catégorie créée avec succès"
+                  data:
+                    $ref: '#/components/schemas/Categorie'
+        '400':
+          description: |
+            Données invalides
+            - Nom de catégorie manquant
+            - Nom de catégorie déjà existant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Une catégorie avec ce nom existe déjà"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /categories/with-count:
+    get:
+      summary: Récupérer les catégories avec le nombre de produits
+      description: |
+        Récupérer toutes les catégories avec le nombre de produits associés.
+        Utile pour afficher des statistiques ou des badges.
+      tags:
+        - Catégories
+      responses:
+        '200':
+          description: Catégories avec comptage récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Catégories récupérées avec succès"
+                  data:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Categorie'
+                        - type: object
+                          properties:
+                            _count:
+                              type: object
+                              properties:
+                                produits:
+                                  type: integer
+                                  example: 15
+
+  /categories/search:
+    get:
+      summary: Rechercher des catégories
+      description: |
+        Rechercher des catégories par nom ou description.
+        
+        **Recherche :**
+        - Recherche insensible à la casse
+        - Recherche dans le nom et la description
+        - Résultats paginés
+      tags:
+        - Catégories
+      parameters:
+        - name: q
+          in: query
+          description: Terme de recherche
+          required: true
+          schema:
+            type: string
+            example: "légumes"
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Recherche effectuée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Recherche effectuée avec succès"
+                  data:
+                    type: object
+                    properties:
+                      categories:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Categorie'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '400':
+          description: Terme de recherche requis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Terme de recherche requis"
+
+  /categories/{id}:
+    get:
+      summary: Récupérer une catégorie par ID
+      description: |
+        Récupérer les détails d'une catégorie spécifique avec la liste des produits associés.
+      tags:
+        - Catégories
+      parameters:
+        - name: id
+          in: path
+          description: ID de la catégorie
+          required: true
+          schema:
+            type: string
+            example: "cat_legumes"
+      responses:
+        '200':
+          description: Catégorie récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Catégorie récupérée avec succès"
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Categorie'
+                      - type: object
+                        properties:
+                          produits:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                nom:
+                                  type: string
+                                prix:
+                                  type: number
+                                stock:
+                                  type: integer
+                                statut:
+                                  type: string
+        '404':
+          description: Catégorie non trouvée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Catégorie non trouvée"
+
+    put:
+      summary: Mettre à jour une catégorie
+      description: |
+        Modifier les informations d'une catégorie existante avec possibilité d'upload d'image (authentification Admin requise).
+        
+        **Validation :**
+        - Le nom doit rester unique s'il est modifié
+        - Tous les champs sont optionnels
+        - Si une nouvelle image est fournie, elle sera uploadée vers Cloudinary
+        - L'ancienne image sera conservée si aucune nouvelle n'est fournie
+        
+        **Format :** multipart/form-data pour l'upload d'image
+        
+        **Exemples d'utilisation :**
+        
+        **Mise à jour sans image (JSON) :**
+        ```bash
+        curl -X PUT \
+          http://localhost:3003/api/categories/cat_legumes \
+          -H 'Authorization: Bearer <your-jwt-token>' \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "nom": "Légumes Bio",
+            "description": "Légumes biologiques et frais",
+            "couleur": "#16A34A"
+          }'
+        ```
+        
+        **Mise à jour avec nouvelle image :**
+        ```bash
+        curl -X PUT \
+          http://localhost:3003/api/categories/cat_legumes \
+          -H 'Authorization: Bearer <your-jwt-token>' \
+          -F 'nom=Légumes Bio' \
+          -F 'description=Légumes biologiques et frais' \
+          -F 'couleur=#16A34A' \
+          -F 'image=@/path/to/new-image.jpg'
+        ```
+      tags:
+        - Catégories
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID de la catégorie à modifier
+          required: true
+          schema:
+            type: string
+            example: "cat_legumes"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                nom:
+                  type: string
+                  description: Nouveau nom de la catégorie
+                  example: "Légumes Bio"
+                description:
+                  type: string
+                  description: Nouvelle description
+                  example: "Légumes biologiques et frais"
+                couleur:
+                  type: string
+                  description: Nouvelle couleur
+                  example: "#16A34A"
+                image:
+                  type: string
+                  format: binary
+                  description: Nouvelle image de la catégorie (JPG, PNG, GIF, WebP - Max 10MB)
+      responses:
+        '200':
+          description: Catégorie mise à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Catégorie mise à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/Categorie'
+              examples:
+                mise_a_jour_sans_image:
+                  summary: Mise à jour sans image
+                  value:
+                    success: true
+                    message: "Catégorie mise à jour avec succès"
+                    data:
+                      id: "cat_legumes"
+                      nom: "Légumes Bio"
+                      description: "Légumes biologiques et frais"
+                      couleur: "#16A34A"
+                      image: "https://res.cloudinary.com/dtpvh5zrk/image/upload/v1753962805/categories/legumes.jpg"
+                      createdAt: "2025-01-15T10:00:00.000Z"
+                      updatedAt: "2025-01-15T15:30:00.000Z"
+                mise_a_jour_avec_image:
+                  summary: Mise à jour avec nouvelle image
+                  value:
+                    success: true
+                    message: "Catégorie mise à jour avec succès"
+                    data:
+                      id: "cat_legumes"
+                      nom: "Légumes Bio"
+                      description: "Légumes biologiques et frais"
+                      couleur: "#16A34A"
+                      image: "https://res.cloudinary.com/dtpvh5zrk/image/upload/v1755282889/categories/kq0ao56tjc7qyfqurizt.png"
+                      createdAt: "2025-01-15T10:00:00.000Z"
+                      updatedAt: "2025-01-15T15:30:00.000Z"
+        '400':
+          description: |
+            Données invalides
+            - Nom de catégorie déjà existant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Une catégorie avec ce nom existe déjà"
+        '404':
+          description: Catégorie non trouvée
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+    delete:
+      summary: Supprimer une catégorie
+      description: |
+        Supprimer une catégorie (authentification Admin requise).
+        
+        **Sécurité :**
+        - Par défaut : Impossible de supprimer une catégorie qui contient des produits
+        - Avec force=true : Suppression forcée même avec des produits (les produits deviennent orphelins)
+        
+        **Paramètres :**
+        - `force` (query) : Si true, force la suppression même avec des produits
+      tags:
+        - Catégories
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID de la catégorie à supprimer
+          required: true
+          schema:
+            type: string
+            example: "cmdt0dip8000pztts37c03afa"
+        - name: force
+          in: query
+          description: Forcer la suppression même si la catégorie contient des produits
+          required: false
+          schema:
+            type: boolean
+            default: false
+            example: true
+      responses:
+        '200':
+          description: Catégorie supprimée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Catégorie supprimée avec succès"
+        '400':
+          description: |
+            Impossible de supprimer
+            - La catégorie contient des produits (utilisez force=true pour forcer)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Impossible de supprimer une catégorie qui contient des produits"
+                  suggestion:
+                    type: string
+                    example: "Utilisez le paramètre force=true pour forcer la suppression"
+        '404':
+          description: Catégorie non trouvée
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /categories/default:
+    post:
+      summary: Créer les catégories par défaut
+      description: |
+        Créer automatiquement les 9 catégories par défaut du système (authentification Admin requise).
+        
+        **Catégories créées :**
+        - Légumes 🥬, Fruits 🍎, Céréales 🌾, Laitiers 🥛
+        - Viandes 🥩, Poissons 🐟, Épices 🌶️, Boissons 🥤, Autres 📦
+      tags:
+        - Catégories
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Catégories par défaut créées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Catégories par défaut créées avec succès"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /regions:
+    get:
+      summary: Récupérer toutes les régions
+      description: |
+        Récupérer la liste de toutes les régions disponibles avec leurs frais de livraison.
+        
+        **Fonctionnalités :**
+        - Liste de toutes les régions
+        - Tri par nom alphabétique
+        - Inclut les frais de livraison interne et externe
+        - Inclut les GIE et adresses associés
+      tags:
+        - Régions
+      responses:
+        '200':
+          description: Liste des régions récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Régions récupérées avec succès"
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Region'
+
+    post:
+      summary: Créer une nouvelle région
+      description: |
+        Créer une nouvelle région avec ses frais de livraison (authentification Admin requise).
+        
+        **Validation :**
+        - Le nom de la région est obligatoire
+        - Le nom doit être unique
+        - Les frais de livraison ont des valeurs par défaut
+      tags:
+        - Régions
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nom
+              properties:
+                nom:
+                  type: string
+                  description: Nom de la région (doit être unique)
+                  example: "Thiès"
+                description:
+                  type: string
+                  description: Description de la région
+                  example: "Région de Thiès"
+                fraisLivraisonInterne:
+                  type: number
+                  description: Frais de livraison dans la même région (FCFA)
+                  example: 500
+                fraisLivraisonExterne:
+                  type: number
+                  description: Frais de livraison vers d'autres régions (FCFA)
+                  example: 2000
+      responses:
+        '201':
+          description: Région créée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Région créée avec succès"
+                  data:
+                    $ref: '#/components/schemas/Region'
+        '400':
+          description: |
+            Données invalides
+            - Le nom de la région est obligatoire
+            - Une région avec ce nom existe déjà
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Le nom de la région est obligatoire"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /regions/{id}:
+    get:
+      summary: Récupérer une région par ID
+      description: |
+        Récupérer les détails d'une région spécifique avec les GIE et adresses associés.
+      tags:
+        - Régions
+      parameters:
+        - name: id
+          in: path
+          description: ID de la région
+          required: true
+          schema:
+            type: string
+            example: "region-dakar"
+      responses:
+        '200':
+          description: Région récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Région récupérée avec succès"
+                  data:
+                    $ref: '#/components/schemas/Region'
+        '404':
+          description: Région non trouvée
+
+    put:
+      summary: Mettre à jour une région
+      description: |
+        Modifier les informations d'une région existante (authentification Admin requise).
+        
+        **Validation :**
+        - Le nom doit rester unique s'il est modifié
+        - Tous les champs sont optionnels
+      tags:
+        - Régions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID de la région à modifier
+          required: true
+          schema:
+            type: string
+            example: "region-dakar"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nom:
+                  type: string
+                  description: Nouveau nom de la région
+                  example: "Dakar Métropole"
+                description:
+                  type: string
+                  description: Nouvelle description
+                  example: "Région métropolitaine de Dakar"
+                fraisLivraisonInterne:
+                  type: number
+                  description: Nouveaux frais de livraison interne
+                  example: 600
+                fraisLivraisonExterne:
+                  type: number
+                  description: Nouveaux frais de livraison externe
+                  example: 2500
+      responses:
+        '200':
+          description: Région mise à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Région mise à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/Region'
+        '400':
+          description: |
+            Données invalides
+            - Une région avec ce nom existe déjà
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Une région avec ce nom existe déjà"
+        '404':
+          description: Région non trouvée
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+    delete:
+      summary: Supprimer une région
+      description: |
+        Supprimer une région (authentification Admin requise).
+        
+        **Sécurité :**
+        - Impossible de supprimer une région qui contient des GIE ou adresses
+      tags:
+        - Régions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID de la région à supprimer
+          required: true
+          schema:
+            type: string
+            example: "region-dakar"
+      responses:
+        '200':
+          description: Région supprimée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Région supprimée avec succès"
+        '400':
+          description: |
+            Impossible de supprimer
+            - La région contient des GIE ou adresses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Impossible de supprimer une région qui contient des GIE ou adresses"
+        '404':
+          description: Région non trouvée
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /regions/calculate-frais-livraison:
+    post:
+      summary: Calculer les frais de livraison
+      description: |
+        Calculer automatiquement les frais de livraison entre deux régions.
+        
+        **Logique de calcul :**
+        - Même région : frais de livraison interne
+        - Régions différentes : frais de livraison externe
+      tags:
+        - Régions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - regionSourceId
+                - regionDestinationId
+              properties:
+                regionSourceId:
+                  type: string
+                  description: ID de la région source (GIE)
+                  example: "region-dakar"
+                regionDestinationId:
+                  type: string
+                  description: ID de la région de destination (livraison)
+                  example: "region-saint-louis"
+      responses:
+        '200':
+          description: Frais de livraison calculés avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Frais de livraison calculés avec succès"
+                  data:
+                    type: object
+                    properties:
+                      fraisLivraison:
+                        type: number
+                        description: Frais de livraison en FCFA
+                        example: 2000
+        '400':
+          description: |
+            Données invalides
+            - Les IDs des régions sont obligatoires
+            - Région source ou destination introuvable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Les IDs des régions source et destination sont obligatoires"
+
+  /regions/create-default:
+    post:
+      summary: Créer les régions par défaut
+      description: |
+        Créer automatiquement les 3 régions par défaut du système (authentification Admin requise).
+        
+        **Régions créées :**
+        - Dakar (frais interne: 500 FCFA, externe: 2000 FCFA)
+        - Saint-Louis (frais interne: 500 FCFA, externe: 2000 FCFA)
+        - Mbour (frais interne: 500 FCFA, externe: 2000 FCFA)
+      tags:
+        - Régions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Régions par défaut créées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Régions par défaut créées avec succès"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /adresses:
+    get:
+      summary: Récupérer toutes les adresses
+      description: |
+        Récupérer la liste de toutes les adresses disponibles avec leurs régions.
+        
+        **Fonctionnalités :**
+        - Liste de toutes les adresses
+        - Tri par nom alphabétique
+        - Inclut les informations de région
+      tags:
+        - Adresses
+      responses:
+        '200':
+          description: Liste des adresses récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Adresses récupérées avec succès"
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Adresse'
+
+    post:
+      summary: Créer une nouvelle adresse
+      description: |
+        Créer une nouvelle adresse de livraison (authentification Admin requise).
+        
+        **Validation :**
+        - Le nom de l'adresse est obligatoire
+        - La région est obligatoire
+        - Les frais spécifiques sont optionnels
+      tags:
+        - Adresses
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nom
+                - regionId
+              properties:
+                nom:
+                  type: string
+                  description: Nom de l'adresse
+                  example: "Centre-ville Dakar"
+                description:
+                  type: string
+                  description: Description de l'adresse
+                  example: "Zone centrale de Dakar"
+                codePostal:
+                  type: string
+                  description: Code postal
+                  example: "DAK001"
+                fraisLivraison:
+                  type: number
+                  description: Frais de livraison spécifiques à cette adresse (FCFA)
+                  example: 0
+                regionId:
+                  type: string
+                  description: ID de la région associée
+                  example: "region-dakar"
+      responses:
+        '201':
+          description: Adresse créée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Adresse créée avec succès"
+                  data:
+                    $ref: '#/components/schemas/Adresse'
+        '400':
+          description: |
+            Données invalides
+            - Le nom de l'adresse et la région sont obligatoires
+            - Région introuvable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Le nom de l'adresse et la région sont obligatoires"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /adresses/{id}:
+    get:
+      summary: Récupérer une adresse par ID
+      description: |
+        Récupérer les détails d'une adresse spécifique avec sa région.
+      tags:
+        - Adresses
+      parameters:
+        - name: id
+          in: path
+          description: ID de l'adresse
+          required: true
+          schema:
+            type: string
+            example: "adresse-centre-dakar"
+      responses:
+        '200':
+          description: Adresse récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Adresse récupérée avec succès"
+                  data:
+                    $ref: '#/components/schemas/Adresse'
+        '404':
+          description: Adresse non trouvée
+
+    put:
+      summary: Mettre à jour une adresse
+      description: |
+        Modifier les informations d'une adresse existante (authentification Admin requise).
+        
+        **Validation :**
+        - Tous les champs sont optionnels
+        - La région doit exister si elle est modifiée
+      tags:
+        - Adresses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID de l'adresse à modifier
+          required: true
+          schema:
+            type: string
+            example: "adresse-centre-dakar"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nom:
+                  type: string
+                  description: Nouveau nom de l'adresse
+                  example: "Centre-ville Dakar Métropole"
+                description:
+                  type: string
+                  description: Nouvelle description
+                  example: "Zone centrale de Dakar Métropole"
+                codePostal:
+                  type: string
+                  description: Nouveau code postal
+                  example: "DAK001"
+                fraisLivraison:
+                  type: number
+                  description: Nouveaux frais de livraison spécifiques
+                  example: 100
+                regionId:
+                  type: string
+                  description: Nouvelle région associée
+                  example: "region-dakar"
+      responses:
+        '200':
+          description: Adresse mise à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Adresse mise à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/Adresse'
+        '400':
+          description: |
+            Données invalides
+            - Région introuvable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Région introuvable"
+        '404':
+          description: Adresse non trouvée
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+    delete:
+      summary: Supprimer une adresse
+      description: |
+        Supprimer une adresse (authentification Admin requise).
+      tags:
+        - Adresses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID de l'adresse à supprimer
+          required: true
+          schema:
+            type: string
+            example: "adresse-centre-dakar"
+      responses:
+        '200':
+          description: Adresse supprimée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Adresse supprimée avec succès"
+        '404':
+          description: Adresse non trouvée
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /adresses/region/{regionId}:
+    get:
+      summary: Récupérer les adresses par région
+      description: |
+        Récupérer toutes les adresses d'une région spécifique.
+      tags:
+        - Adresses
+      parameters:
+        - name: regionId
+          in: path
+          description: ID de la région
+          required: true
+          schema:
+            type: string
+            example: "region-dakar"
+      responses:
+        '200':
+          description: Adresses de la région récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Adresses récupérées avec succès"
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Adresse'
+        '404':
+          description: Région non trouvée
+
+  /adresses/create-default:
+    post:
+      summary: Créer les adresses par défaut
+      description: |
+        Créer automatiquement les adresses par défaut pour toutes les régions (authentification Admin requise).
+        
+        **Adresses créées par région :**
+        - Centre-ville (frais: 0 FCFA)
+        - Banlieue (frais: 200 FCFA)
+        - Périphérie (frais: 500 FCFA)
+      tags:
+        - Adresses
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Adresses par défaut créées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Adresses par défaut créées avec succès"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /produits/mes-produits:
+    get:
+      summary: Liste des produits du GIE connecté
+      description: Récupérer la liste de tous les produits appartenant au GIE connecté (authentification GIE requise)
+      tags:
+        - Produits
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Liste des produits du GIE connecté récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Liste des produits du GIE connecté"
+                  data:
+                    type: object
+                    properties:
+                      produits:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Produit'
+        '401':
+          description: Non autorisé
+
+  /commandes/mes-commandes:
+    get:
+      summary: Liste des commandes du GIE connecté
+      description: Récupérer toutes les commandes contenant au moins un produit du GIE connecté (authentification GIE requise)
+      tags:
+        - Commande
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: statut
+          in: query
+          description: Filtrer par statut de commande (optionnel)
+          required: false
+          schema:
+            type: string
+            enum: [EN_ATTENTE, CONFIRMEE, EN_PREPARATION, EXPEDIEE, LIVREE, ANNULEE]
+      responses:
+        '200':
+          description: Liste des commandes du GIE connecté récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Commande'
+        '401':
+          description: Non autorisé
+
+  /commandes/mes-commandes/{commandeId}:
+    get:
+      summary: Détail d'une commande du GIE connecté
+      description: Récupérer le détail d'une commande du GIE connecté (authentification GIE requise)
+      tags:
+        - Commande
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: commandeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Détail de la commande du GIE connecté
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Commande'
+        '401':
+          description: Non autorisé
+        '404':
+          description: Commande non trouvée
+
+  /commandes/mes-commandes-stats:
+    get:
+      summary: Statistiques de vente du GIE connecté
+      description: Obtenir les statistiques de vente du GIE connecté (nombre de commandes, chiffre d'affaires, produits les plus vendus)
+      tags:
+        - Commande
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Statistiques de vente du GIE connecté
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      totalCommandes:
+                        type: integer
+                        example: 12
+                      chiffreAffaires:
+                        type: number
+                        example: 1234.56
+                      produitsLesPlusVendus:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            nom:
+                              type: string
+                            totalVendu:
+                              type: integer
+        '401':
+          description: Non autorisé
+
+  /commandes/{id}/statut:
+    patch:
+      summary: Modifier le statut d'une commande
+      description: Permet de modifier uniquement le statut d'une commande
+      tags:
+        - Commande
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID de la commande
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                statut:
+                  type: string
+                  enum: [EN_ATTENTE, CONFIRMEE, EN_PREPARATION, EXPEDIEE, LIVREE, ANNULEE]
+                  example: CONFIRMEE
+      responses:
+        '200':
+          description: Statut de la commande modifié avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Commande'
+        '400':
+          description: Données invalides
+        '401':
+          description: Non autorisé
+        '404':
+          description: Commande non trouvée
+
+  /commandes/stats-gie:
+    get:
+      summary: Récupérer les statistiques GIE
+      description: |
+        Récupérer les statistiques détaillées du GIE connecté.
+        
+        **Statistiques incluses :**
+        - Total des commandes
+        - Commandes en attente
+        - Répartition par statut
+        - Vue d'ensemble de l'activité
+      tags:
+        - Commandes Multi-GIE
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Statistiques GIE récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      totalCommandes:
+                        type: integer
+                        example: 50
+                      commandesEnAttente:
+                        type: integer
+                        example: 5
+                      repartition:
+                        type: object
+                        properties:
+                          EN_ATTENTE:
+                            type: integer
+                            example: 5
+                          EN_PREPARATION:
+                            type: integer
+                            example: 10
+                          PRET:
+                            type: integer
+                            example: 30
+                          ANNULE:
+                            type: integer
+                            example: 5
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - GIE requis
+
+  /commandes/produit/{panierProduitId}/en-preparation:
+    patch:
+      summary: Marquer un produit comme en préparation
+      description: |
+        Marquer un produit spécifique comme étant en cours de préparation.
+        
+        **Fonctionnalités :**
+        - Changement de statut de EN_ATTENTE vers EN_PREPARATION
+        - Mise à jour automatique du statut global de la commande
+        - Notification au client si tous les GIE sont prêts
+      tags:
+        - Commandes Multi-GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: panierProduitId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ID du produit dans le panier
+      responses:
+        '200':
+          description: Produit marqué comme en préparation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produit marqué comme en préparation"
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - GIE requis
+        '404':
+          description: Produit non trouvé
+
+  /commandes/produit/{panierProduitId}/pret:
+    patch:
+      summary: Marquer un produit comme prêt
+      description: |
+        Marquer un produit spécifique comme étant prêt pour la livraison.
+        
+        **Fonctionnalités :**
+        - Changement de statut vers PRET
+        - Mise à jour automatique du statut global de la commande
+        - Notification automatique au client si TOUS les GIE sont prêts
+        - Enregistrement de la date de confirmation
+      tags:
+        - Commandes Multi-GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: panierProduitId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ID du produit dans le panier
+      responses:
+        '200':
+          description: Produit marqué comme prêt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produit marqué comme prêt"
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - GIE requis
+        '404':
+          description: Produit non trouvé
+
+  /commandes/produit/{panierProduitId}/annuler:
+    patch:
+      summary: Annuler un produit
+      description: |
+        Annuler un produit spécifique avec raison optionnelle.
+        
+        **Fonctionnalités :**
+        - Changement de statut vers ANNULE
+        - Notification automatique au client
+        - Mise à jour du statut global de la commande
+        - Possibilité de fournir une raison d'annulation
+      tags:
+        - Commandes Multi-GIE
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: panierProduitId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ID du produit dans le panier
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                raison:
+                  type: string
+                  example: "Rupture de stock"
+                  description: "Raison de l'annulation (optionnel)"
+      responses:
+        '200':
+          description: Produit annulé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Produit annulé avec succès"
+        '401':
+          description: Non autorisé
+        '403':
+          description: Accès refusé - GIE requis
+        '404':
+          description: Produit non trouvé
+
+
+  /auth/me:
+    get:
+      summary: Récupérer les informations de l'utilisateur connecté
+      tags:
+        - Authentification
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Informations de l'utilisateur connecté
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    description: Informations de l'utilisateur
+        '401':
+          description: Non autorisé
+    patch:
+      summary: Modifier les informations de l'utilisateur connecté
+      tags:
+        - Authentification
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: "Champs à modifier (ex: nom, email, etc.)"
+            example:
+              # Exemple pour un client
+              nom: "Nouveau Nom"
+              prenom: "Nouveau Prénom"
+              email: "nouveau@email.com"
+              telephone: "+221700000000"
+              adresse: "Nouvelle adresse"
+              # Exemple pour un GIE
+              # nom: "Nouveau GIE"
+              # email: "nouveau@gie.com"
+              # telephone: "+221700000000"
+              # adresse: "Nouvelle adresse"
+              # description: "Nouveau descriptif"
+              # Exemple pour un administrateur
+              # nom: "Admin Modifié"
+              # prenom: "Prénom Modifié"
+              # email: "nouveladmin@email.com"
+              # telephone: "+221700000000"
+      responses:
+        '200':
+          description: Utilisateur mis à jour
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Utilisateur mis à jour
+                  data:
+                    type: object
+                    description: Informations de l'utilisateur
+        '400':
+          description: Données invalides
+        '401':
+          description: Non autorisé
+
+  /paiements/{id}/statut:
+    patch:
+      summary: Modifier le statut d'un paiement
+      tags:
+        - Paiement
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID du paiement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                statut:
+                  type: string
+                  enum: [EN_ATTENTE, VALIDE, ECHEC, REMBOURSE]
+                  example: VALIDE
+      responses:
+        '200':
+          description: Statut du paiement modifié avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Paiement'
+        '400':
+          description: Données invalides
+        '401':
+          description: Non autorisé
+        '404':
+          description: Paiement non trouvé
+
+  /commandes/mes-commandes-client:
+    get:
+      summary: Liste des commandes du client connecté
+      description: Récupérer toutes les commandes passées par le client connecté (authentification client requise)
+      tags:
+        - Commande
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Liste des commandes du client connecté
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Commande'
+        '401':
+          description: Non autorisé
+
+  /livreurs:
+    get:
+      summary: Récupérer tous les livreurs (Admin seulement)
+      description: |
+        Récupérer la liste de tous les livreurs avec pagination. **Réservé aux administrateurs uniquement.**
+        
+        **Fonctionnalités :**
+        - Liste paginée des livreurs
+        - Tri par date de création (plus récents en premier)
+        - Inclut les informations de région et nombre de commandes
+        - Permet à l'admin de gérer l'équipe de livraison
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Liste des livreurs récupérée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Livreurs récupérés avec succès"
+                  data:
+                    type: object
+                    properties:
+                      livreurs:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Livreur'
+                      total:
+                        type: integer
+                        example: 25
+                      pages:
+                        type: integer
+                        example: 2
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+    post:
+      summary: Créer un nouveau livreur (Admin seulement)
+      description: |
+        Créer un nouveau livreur. **Réservé aux administrateurs uniquement.**
+        
+        **Fonctionnalités :**
+        - Validation des données
+        - Hashage automatique du mot de passe
+        - Association avec une région (optionnel)
+        - Vérification de l'unicité de l'email
+        - Attribution automatique du statut DISPONIBLE
+        
+        **Processus de création :**
+        1. L'admin crée le compte livreur
+        2. Le livreur reçoit ses identifiants
+        3. Le livreur peut se connecter via l'app mobile
+        4. Le livreur peut voir et accepter les commandes
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLivreurDto'
+      responses:
+        '201':
+          description: Livreur créé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Livreur créé avec succès"
+                  data:
+                    $ref: '#/components/schemas/Livreur'
+        '400':
+          description: |
+            Données invalides
+            - Email déjà utilisé
+            - Région introuvable
+            - Données manquantes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Email déjà utilisé"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /livreurs/login:
+    post:
+      summary: Authentification livreur
+      description: |
+        Authentifier un livreur et obtenir un token JWT.
+        
+        **Fonctionnalités :**
+        - Vérification des identifiants
+        - Génération de token JWT
+        - Vérification du statut du compte
+        - Retour des informations du livreur
+      tags:
+        - Livreurs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginLivreurDto'
+      responses:
+        '200':
+          description: Connexion réussie
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Connexion réussie"
+                  data:
+                    type: object
+                    properties:
+                      livreur:
+                        $ref: '#/components/schemas/Livreur'
+                      token:
+                        type: string
+                        example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '401':
+          description: |
+            Échec de l'authentification
+            - Email ou mot de passe incorrect
+            - Compte bloqué
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Email ou mot de passe incorrect"
+
+  /livreurs/{id}:
+    get:
+      summary: Récupérer un livreur par ID
+      description: |
+        Récupérer les détails complets d'un livreur spécifique.
+        
+        **Inclus :**
+        - Informations du livreur
+        - Région associée
+        - Liste des commandes assignées
+        - Détails des produits et GIE pour chaque commande
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du livreur
+          required: true
+          schema:
+            type: string
+            example: "livreur-123"
+      responses:
+        '200':
+          description: Livreur récupéré avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Livreur récupéré avec succès"
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Livreur'
+                      - type: object
+                        properties:
+                          region:
+                            $ref: '#/components/schemas/Region'
+                          commandes:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Commande'
+        '404':
+          description: Livreur non trouvé
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+
+    put:
+      summary: Mettre à jour un livreur
+      description: |
+        Modifier les informations d'un livreur.
+        
+        **Fonctionnalités :**
+        - Mise à jour des informations personnelles
+        - Changement de statut
+        - Association/désassociation de région
+        - Validation des données
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du livreur à modifier
+          required: true
+          schema:
+            type: string
+            example: "livreur-123"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLivreurDto'
+      responses:
+        '200':
+          description: Livreur mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Livreur mis à jour avec succès"
+                  data:
+                    $ref: '#/components/schemas/Livreur'
+        '400':
+          description: |
+            Données invalides
+            - Région introuvable
+            - Données manquantes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Région introuvable"
+        '404':
+          description: Livreur non trouvé
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+
+    delete:
+      summary: Supprimer un livreur (Admin seulement)
+      description: |
+        Supprimer définitivement un livreur. **Réservé aux administrateurs uniquement.**
+        
+        **Attention :** Cette action est irréversible.
+        
+        **Vérifications :**
+        - Le livreur ne doit pas avoir de commandes en cours
+        - Le livreur doit être en statut DISPONIBLE ou INDISPONIBLE
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du livreur à supprimer
+          required: true
+          schema:
+            type: string
+            example: "livreur-123"
+      responses:
+        '200':
+          description: Livreur supprimé avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Livreur supprimé avec succès"
+        '404':
+          description: Livreur non trouvé
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+        '403':
+          description: Accès refusé - Admin requis
+
+  /livreurs/{id}/commandes:
+    get:
+      summary: Récupérer les commandes d'un livreur
+      description: |
+        Récupérer toutes les commandes assignées à un livreur spécifique.
+        
+        **Fonctionnalités :**
+        - Liste paginée des commandes
+        - Tri par date de commande (plus récentes en premier)
+        - Inclut les détails complets : client, produits, GIE, paiement
+        - Filtrage par statut possible
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: ID du livreur
+          required: true
+          schema:
+            type: string
+            example: "livreur-123"
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Commandes du livreur récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Commandes récupérées avec succès"
+                  data:
+                    type: object
+                    properties:
+                      commandes:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Commande'
+                      total:
+                        type: integer
+                        example: 15
+                      pages:
+                        type: integer
+                        example: 1
+        '404':
+          description: Livreur non trouvé
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+
+  /livreurs/commandes-disponibles:
+    get:
+      summary: Récupérer les commandes disponibles (tous GIE)
+      description: |
+        Récupérer **toutes** les commandes disponibles pour les livreurs, peu importe le GIE.
+        
+        **Service de livraison centralisé :**
+        - Les livreurs voient toutes les commandes de tous les GIE
+        - Chaque commande contient les informations du GIE pour contact
+        - Les livreurs peuvent choisir les commandes à livrer
+        - **Aucun filtre de région obligatoire** - toutes les commandes sont visibles
+        
+        **Fonctionnalités :**
+        - Commandes sans livreur assigné (statut CONFIRMEE, EN_ATTENTE ou EN_PREPARATION)
+        - **Service centralisé** : Toutes les commandes de tous les GIE sont visibles
+        - Inclut les informations complètes : client, GIE, produits, adresse
+        - Tri par date de création (plus récentes en premier)
+        - Informations de contact GIE pour chaque produit
+        - Montants et frais de livraison calculés
+        
+        **Service centralisé :**
+        - **Accès universel** : Toutes les commandes disponibles de tous les GIE
+        - **Aucun filtre** : Les livreurs voient toutes les opportunités de livraison
+        - **Choix libre** : Les livreurs choisissent les commandes à livrer
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Numéro de page
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Nombre d'éléments par page
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Commandes disponibles récupérées avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Commandes disponibles récupérées avec succès"
+                  data:
+                    type: object
+                    properties:
+                      commandes:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Commande'
+                      total:
+                        type: integer
+                        example: 8
+                      pages:
+                        type: integer
+                        example: 1
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+
+  /livreurs/assigner-commande:
+    post:
+      summary: Assigner une commande à un livreur
+      description: |
+        Assigner une commande disponible à un livreur.
+        
+        **Fonctionnalités :**
+        - Vérification de la disponibilité du livreur
+        - Vérification que la commande n'est pas déjà assignée
+        - Mise à jour automatique du statut du livreur
+        - Validation des permissions
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - commandeId
+              properties:
+                commandeId:
+                  type: string
+                  description: ID de la commande à assigner
+                  example: "commande-456"
+      responses:
+        '200':
+          description: Commande assignée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Commande assignée avec succès"
+        '400':
+          description: |
+            Erreur d'assignation
+            - Livreur introuvable
+            - Commande introuvable
+            - Commande déjà assignée
+            - Livreur non disponible
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Livreur non disponible"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+
+  /livreurs/marquer-livree:
+    post:
+      summary: Marquer une commande comme livrée
+      description: |
+        Marquer une commande assignée comme livrée.
+        
+        **Fonctionnalités :**
+        - Vérification que la commande est assignée au livreur
+        - Mise à jour du statut de la commande
+        - Remise du livreur en statut DISPONIBLE
+        - Enregistrement de la date de livraison
+      tags:
+        - Livreurs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - commandeId
+              properties:
+                commandeId:
+                  type: string
+                  description: ID de la commande à marquer comme livrée
+                  example: "commande-456"
+      responses:
+        '200':
+          description: Commande marquée comme livrée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Commande marquée comme livrée avec succès"
+        '400':
+          description: |
+            Erreur de mise à jour
+            - commandeId manquant
+            - Commande introuvable
+            - Commande non assignée à ce livreur
+            - Erreur de mise à jour du statut
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    examples:
+                      - "commandeId est requis"
+                      - "Commande introuvable ou non assignée à ce livreur"
+                      - "Erreur lors de la mise à jour du statut"
+        '401':
+          description: Non autorisé - Token JWT manquant ou invalide
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Administrateur:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "clx1234567890abcdef"
+        email:
+          type: string
+          format: email
+          example: "admin@gie.com"
+        nom:
+          type: string
+          example: "Admin"
+        prenom:
+          type: string
+          example: "Normal"
+        telephone:
+          type: string
+          example: "+1234567890"
+        role:
+          type: string
+          enum: [ADMIN, SUPER_ADMIN]
+          example: "ADMIN"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateAdministrateurDto:
+      type: object
+      required:
+        - email
+        - password
+        - nom
+        - prenom
+      properties:
+        email:
+          type: string
+          format: email
+          example: "admin@gie.com"
+        password:
+          type: string
+          example: "admin123"
+        nom:
+          type: string
+          example: "Admin"
+        prenom:
+          type: string
+          example: "Normal"
+        telephone:
+          type: string
+          example: "+1234567890"
+        role:
+          type: string
+          enum: [ADMIN, SUPER_ADMIN]
+          default: "ADMIN"
+          example: "ADMIN"
+
+    Client:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "clx1234567890abcdef"
+        email:
+          type: string
+          format: email
+          example: "client@example.com"
+        nom:
+          type: string
+          example: "Dupont"
+        prenom:
+          type: string
+          example: "Jean"
+        telephone:
+          type: string
+          example: "+1234567890"
+        adresse:
+          type: string
+          example: "123 Rue du Client, Ville"
+        statut:
+          type: string
+          enum: [ACTIF, INACTIF, BLOQUE]
+          example: "ACTIF"
+        administrateurId:
+          type: string
+          example: "clx1234567890abcdef"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateClientDto:
+      type: object
+      required:
+        - email
+        - password
+        - nom
+        - prenom
+      properties:
+        email:
+          type: string
+          format: email
+          example: "client@example.com"
+        password:
+          type: string
+          example: "client123"
+        nom:
+          type: string
+          example: "Dupont"
+        prenom:
+          type: string
+          example: "Jean"
+        telephone:
+          type: string
+          example: "+1234567890"
+        adresse:
+          type: string
+          example: "123 Rue du Client, Ville"
+        administrateurId:
+          type: string
+          example: "clx1234567890abcdef"
+
+    GIE:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "clx1234567890abcdef"
+        nom:
+          type: string
+          example: "GIE Agricole du Nord"
+        description:
+          type: string
+          example: "Groupement d'intérêt économique spécialisé dans l'agriculture"
+        adresse:
+          type: string
+          example: "123 Rue des Agriculteurs, Nord"
+        telephone:
+          type: string
+          example: "+1234567890"
+        email:
+          type: string
+          format: email
+          example: "contact@gie-agricole.com"
+        logo:
+          type: string
+          example: "https://example.com/logo.png"
+        statut:
+          type: string
+          enum: [ACTIF, INACTIF, SUSPENDU]
+          example: "ACTIF"
+        regionId:
+          type: string
+          description: ID de la région associée (optionnel)
+          example: "region-dakar"
+        administrateurId:
+          type: string
+          example: "clx1234567890abcdef"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        region:
+          $ref: '#/components/schemas/Region'
+
+    CreateGIEDto:
+      type: object
+      required:
+        - nom
+      properties:
+        nom:
+          type: string
+          example: "GIE Agricole du Nord"
+        description:
+          type: string
+          example: "Groupement d'intérêt économique spécialisé dans l'agriculture"
+        adresse:
+          type: string
+          example: "123 Rue des Agriculteurs, Nord"
+        telephone:
+          type: string
+          example: "+1234567890"
+        email:
+          type: string
+          format: email
+          example: "contact@gie-agricole.com"
+        logo:
+          type: string
+          example: "https://example.com/logo.png"
+        regionId:
+          type: string
+          description: ID de la région associée (optionnel)
+          example: "region-dakar"
+
+    Categorie:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "cat_legumes"
+        nom:
+          type: string
+          example: "Légumes"
+        description:
+          type: string
+          example: "Légumes frais et biologiques"
+        couleur:
+          type: string
+          description: Code couleur hexadécimal
+          example: "#22C55E"
+        image:
+          type: string
+          description: URL de l'image de la catégorie
+          example: "https://res.cloudinary.com/dtpvh5zrk/image/upload/v1753962805/produits/legumes.jpg"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        produits:
+          type: array
+          description: Liste des produits de cette catégorie (optionnel)
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              nom:
+                type: string
+              prix:
+                type: number
+              stock:
+                type: integer
+              statut:
+                type: string
+        _count:
+          type: object
+          description: Nombre de produits dans cette catégorie (optionnel)
+          properties:
+            produits:
+              type: integer
+              example: 15
+
+    CreateCategorieDto:
+      type: object
+      required:
+        - nom
+      properties:
+        nom:
+          type: string
+          description: Nom de la catégorie (doit être unique)
+          example: "Légumes"
+        description:
+          type: string
+          description: Description de la catégorie
+          example: "Légumes frais et biologiques"
+        couleur:
+          type: string
+          description: Code couleur hexadécimal
+          example: "#22C55E"
+        image:
+          type: string
+          description: URL de l'image de la catégorie
+          example: "https://res.cloudinary.com/dtpvh5zrk/image/upload/v1753962805/produits/legumes.jpg"
+
+    Produit:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "clx1234567890abcdef"
+        nom:
+          type: string
+          example: "Tomates Bio"
+        description:
+          type: string
+          example: "Tomates biologiques fraîches du jardin"
+        prix:
+          type: number
+          format: float
+          example: 2.50
+        stock:
+          type: integer
+          example: 100
+        image:
+          type: string
+          description: URL de l'image du produit (Cloudinary)
+          example: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/produits/tomates-bio.jpg"
+        statut:
+          type: string
+          enum: [DISPONIBLE, RUPTURE, HORS_STOCK]
+          example: "DISPONIBLE"
+        gieId:
+          type: string
+          example: "clx1234567890abcdef"
+        categorieId:
+          type: string
+          description: ID de la catégorie du produit (optionnel)
+          example: "cat_legumes"
+        categorie:
+          $ref: '#/components/schemas/Categorie'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateProduitDto:
+      type: object
+      required:
+        - nom
+        - prix
+        - stock
+        - gieId
+      properties:
+        nom:
+          type: string
+          example: "Tomates Bio"
+        description:
+          type: string
+          example: "Tomates biologiques fraîches du jardin"
+        prix:
+          type: number
+          format: float
+          minimum: 0
+          example: 2.50
+        stock:
+          type: integer
+          minimum: 0
+          example: 100
+        image:
+          type: string
+          description: URL de l'image du produit (Cloudinary)
+          example: "https://res.cloudinary.com/your-cloud/image/upload/v1234567890/produits/tomates-bio.jpg"
+        categorieId:
+          type: string
+          description: ID de la catégorie du produit (optionnel)
+          example: "cat_legumes"
+        gieId:
+          type: string
+          example: "clx1234567890abcdef"
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 10
+        total:
+          type: integer
+          example: 100
+        pages:
+          type: integer
+          example: 10
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "Une erreur s'est produite"
+        error:
+          type: string
+          example: "Détails de l'erreur"
+
+    Commande:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "commande-123"
+        numero:
+          type: string
+          example: "CMD-2024-001"
+        montant:
+          type: number
+          format: float
+          example: 15000
+        fraisLivraison:
+          type: number
+          format: float
+          description: Frais de livraison en FCFA
+          example: 500
+        statut:
+          type: string
+          enum: [EN_ATTENTE, CONFIRMEE, EN_PREPARATION, EXPEDIEE, LIVREE, ANNULEE]
+          example: "EN_ATTENTE"
+        dateCommande:
+          type: string
+          format: date-time
+        dateLivraison:
+          type: string
+          format: date-time
+        adresseLivraison:
+          type: string
+          example: "123 Rue de la Livraison, Dakar"
+        regionLivraisonId:
+          type: string
+          description: ID de la région de livraison
+          example: "region-dakar"
+        livreurId:
+          type: string
+          description: ID du livreur assigné à cette commande
+          example: "livreur-123"
+        clientId:
+          type: string
+          example: "client-123"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        regionLivraison:
+          $ref: '#/components/schemas/Region'
+        livreur:
+          $ref: '#/components/schemas/Livreur'
+        produits:
+          type: array
+          items:
+            type: object
+            properties:
+              produitId:
+                type: string
+              quantite:
+                type: integer
+
+    StatutGIEProduit:
+      type: string
+      enum: [EN_ATTENTE, EN_PREPARATION, PRET, ANNULE]
+      description: |
+        Statuts possibles pour un produit dans une commande multi-GIE
+        
+        - **EN_ATTENTE** : Commande reçue, en attente de traitement par le GIE
+        - **EN_PREPARATION** : Le GIE a commencé la préparation du produit
+        - **PRET** : Le produit est prêt pour la livraison
+        - **ANNULE** : Le produit a été annulé (rupture de stock, etc.)
+
+    PanierProduitMultiGIE:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "pp_123"
+        quantite:
+          type: integer
+          example: 2
+        prixUnitaire:
+          type: number
+          example: 500.0
+        statutGIE:
+          $ref: '#/components/schemas/StatutGIEProduit'
+        dateConfirmation:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00Z"
+          description: "Date de confirmation par le GIE (si PRET)"
+        produit:
+          $ref: '#/components/schemas/Produit'
+
+    DetailsGIE:
+      type: object
+      properties:
+        totalProduits:
+          type: integer
+          example: 3
+          description: "Nombre total de produits du GIE dans la commande"
+        produitsPrets:
+          type: integer
+          example: 1
+          description: "Nombre de produits marqués comme PRET"
+        produitsEnPreparation:
+          type: integer
+          example: 1
+          description: "Nombre de produits en cours de préparation"
+        produitsEnAttente:
+          type: integer
+          example: 1
+          description: "Nombre de produits en attente de traitement"
+        produitsAnnules:
+          type: integer
+          example: 0
+          description: "Nombre de produits annulés"
+        montantGIE:
+          type: number
+          example: 2500.0
+          description: "Montant total des produits du GIE dans la commande"
+        progression:
+          type: number
+          example: 33.33
+          description: "Pourcentage de progression (0-100)"
+
+    CommandeMultiGIE:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "cmd_123"
+        numero:
+          type: string
+          example: "CMD-123"
+        statut:
+          type: string
+          enum: [EN_ATTENTE, CONFIRMEE, EN_PREPARATION, EXPEDIEE, LIVREE, ANNULEE]
+          description: "Statut global de la commande (calculé automatiquement)"
+        client:
+          $ref: '#/components/schemas/Client'
+        panierProduits:
+          type: array
+          items:
+            $ref: '#/components/schemas/PanierProduitMultiGIE'
+        detailsGIE:
+          $ref: '#/components/schemas/DetailsGIE'
+        dateCommande:
+          type: string
+          format: date-time
+        montant:
+          type: number
+          example: 5000.0 
+
+    Paiement:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "paiement-123"
+        commandeId:
+          type: string
+          example: "commande-123"
+        montant:
+          type: number
+          format: float
+          example: 15500
+        fraisLivraison:
+          type: number
+          format: float
+          description: Frais de livraison inclus dans le paiement (FCFA)
+          example: 500
+        methode:
+          type: string
+          enum: [CARTE_BANCAIRE, VIREMENT, ESPECES, MOBILE_MONEY, PAIEMENT_A_LA_LIVRAISON, WAVE, ORANGE_MONEY]
+          example: "MOBILE_MONEY"
+        statut:
+          type: string
+          enum: [EN_ATTENTE, VALIDE, ECHEC, REMBOURSE]
+          example: "VALIDE"
+        reference:
+          type: string
+          example: "REF-2024-001"
+        datePaiement:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Region:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "region-dakar"
+        nom:
+          type: string
+          example: "Dakar"
+        description:
+          type: string
+          example: "Région de Dakar"
+        fraisLivraisonInterne:
+          type: number
+          format: float
+          description: Frais de livraison dans la même région (FCFA)
+          example: 500
+        fraisLivraisonExterne:
+          type: number
+          format: float
+          description: Frais de livraison vers d'autres régions (FCFA)
+          example: 2000
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        gies:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              nom:
+                type: string
+              email:
+                type: string
+        commandes:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              numero:
+                type: string
+        adresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/Adresse'
+
+    CreateRegionDto:
+      type: object
+      required:
+        - nom
+      properties:
+        nom:
+          type: string
+          description: Nom de la région (doit être unique)
+          example: "Dakar"
+        description:
+          type: string
+          description: Description de la région
+          example: "Région de Dakar"
+        fraisLivraisonInterne:
+          type: number
+          format: float
+          description: Frais de livraison dans la même région (FCFA)
+          example: 500
+        fraisLivraisonExterne:
+          type: number
+          format: float
+          description: Frais de livraison vers d'autres régions (FCFA)
+          example: 2000
+
+    UpdateRegionDto:
+      type: object
+      properties:
+        nom:
+          type: string
+          description: Nouveau nom de la région
+          example: "Dakar Métropole"
+        description:
+          type: string
+          description: Nouvelle description
+          example: "Région métropolitaine de Dakar"
+        fraisLivraisonInterne:
+          type: number
+          format: float
+          description: Nouveaux frais de livraison interne
+          example: 600
+        fraisLivraisonExterne:
+          type: number
+          format: float
+          description: Nouveaux frais de livraison externe
+          example: 2500
+
+    Adresse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "adresse-centre-dakar"
+        nom:
+          type: string
+          example: "Centre-ville Dakar"
+        description:
+          type: string
+          example: "Zone centrale de Dakar"
+        codePostal:
+          type: string
+          example: "DAK001"
+        fraisLivraison:
+          type: number
+          format: float
+          description: Frais de livraison spécifiques à cette adresse (FCFA)
+          example: 0
+        regionId:
+          type: string
+          example: "region-dakar"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        region:
+          $ref: '#/components/schemas/Region'
+
+    CreateAdresseDto:
+      type: object
+      required:
+        - nom
+        - regionId
+      properties:
+        nom:
+          type: string
+          description: Nom de l'adresse
+          example: "Centre-ville Dakar"
+        description:
+          type: string
+          description: Description de l'adresse
+          example: "Zone centrale de Dakar"
+        codePostal:
+          type: string
+          description: Code postal
+          example: "DAK001"
+        fraisLivraison:
+          type: number
+          format: float
+          description: Frais de livraison spécifiques à cette adresse (FCFA)
+          example: 0
+        regionId:
+          type: string
+          description: ID de la région associée
+          example: "region-dakar"
+
+    UpdateAdresseDto:
+      type: object
+      properties:
+        nom:
+          type: string
+          description: Nouveau nom de l'adresse
+          example: "Centre-ville Dakar Métropole"
+        description:
+          type: string
+          description: Nouvelle description
+          example: "Zone centrale de Dakar Métropole"
+        codePostal:
+          type: string
+          description: Nouveau code postal
+          example: "DAK001"
+        fraisLivraison:
+          type: number
+          format: float
+          description: Nouveaux frais de livraison spécifiques
+          example: 100
+        regionId:
+          type: string
+          description: Nouvelle région associée
+          example: "region-dakar"
+
+    Livreur:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "livreur-123"
+        nom:
+          type: string
+          example: "Diop"
+        prenom:
+          type: string
+          example: "Moussa"
+        email:
+          type: string
+          format: email
+          example: "moussa.diop@livraison.com"
+        telephone:
+          type: string
+          example: "+221701234567"
+        statut:
+          type: string
+          enum: [DISPONIBLE, EN_LIVRAISON, INDISPONIBLE, BLOQUE]
+          example: "DISPONIBLE"
+        regionId:
+          type: string
+          example: "region-dakar"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        region:
+          $ref: '#/components/schemas/Region'
+        commandes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Commande'
+
+    CreateLivreurDto:
+      type: object
+      required:
+        - nom
+        - prenom
+        - email
+        - telephone
+        - password
+      properties:
+        nom:
+          type: string
+          description: Nom de famille du livreur
+          example: "Diop"
+        prenom:
+          type: string
+          description: Prénom du livreur
+          example: "Moussa"
+        email:
+          type: string
+          format: email
+          description: Email unique du livreur
+          example: "moussa.diop@livraison.com"
+        telephone:
+          type: string
+          description: Numéro de téléphone du livreur
+          example: "+221701234567"
+        password:
+          type: string
+          description: Mot de passe du livreur (sera hashé)
+          example: "password123"
+        regionId:
+          type: string
+          description: ID de la région d'affectation (optionnel)
+          example: "region-dakar"
+
+    UpdateLivreurDto:
+      type: object
+      properties:
+        nom:
+          type: string
+          description: Nouveau nom de famille
+          example: "Diop"
+        prenom:
+          type: string
+          description: Nouveau prénom
+          example: "Moussa"
+        email:
+          type: string
+          format: email
+          description: Nouvel email
+          example: "moussa.diop@livraison.com"
+        telephone:
+          type: string
+          description: Nouveau numéro de téléphone
+          example: "+221701234567"
+        statut:
+          type: string
+          enum: [DISPONIBLE, EN_LIVRAISON, INDISPONIBLE, BLOQUE]
+          description: Nouveau statut du livreur
+          example: "DISPONIBLE"
+        regionId:
+          type: string
+          description: Nouvelle région d'affectation
+          example: "region-dakar"
+
+    LoginLivreurDto:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email du livreur
+          example: "moussa.diop@livraison.com"
+        password:
+          type: string
+          description: Mot de passe du livreur
+          example: "password123"
+
+tags:
+  - name: Santé
+    description: Endpoints de santé de l'API
+  - name: Authentification
+    description: Endpoints d'authentification et d'autorisation
+  - name: Catégories
+    description: Gestion des catégories de produits
+  - name: GIE
+    description: Gestion des Groupements d'Intérêt Économique
+  - name: Produits
+    description: Gestion des produits
+  - name: Clients
+    description: Gestion des clients
+  - name: Commandes
+    description: Gestion des commandes avec frais de livraison automatiques
+  - name: Paiements
+    description: Gestion des paiements
+  - name: Régions
+    description: Gestion des régions et frais de livraison
+  - name: Adresses
+    description: Gestion des adresses de livraison
+  - name: Livreurs
+    description: Gestion des livreurs et système de livraison 
